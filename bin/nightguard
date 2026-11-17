@@ -1,0 +1,269 @@
+#!/bin/bash
+# nightguard — manage Night Guard (night-time lock for Claude Code and Codex).
+set -u
+NG_VERSION="1.0.0"
+
+# Resolve where we run from: installed (~/.night-guard/nightguard) or repo (bin/nightguard).
+self="$0"
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case "$link" in /*) self="$link" ;; *) self="$(dirname "$self")/$link" ;; esac
+done
+SELF_DIR=$(cd "$(dirname "$self")" && pwd)
+if [ -f "$SELF_DIR/night-guard.sh" ]; then
+  HOOK_SRC="$SELF_DIR/night-guard.sh"; REPO_DIR=""
+else
+  HOOK_SRC="$SELF_DIR/../hooks/night-guard.sh"; REPO_DIR=$(cd "$SELF_DIR/.." && pwd)
+fi
+[ -f "$HOOK_SRC" ] || { echo "nightguard: не найден night-guard.sh рядом с $self" >&2; exit 1; }
+
+NG_LIB_ONLY=1 . "$HOOK_SRC"
+unset NG_LIB_ONLY
+ng_load
+
+HOOK_PATH="$NG_HOME/night-guard.sh"
+CLAUDE_SETTINGS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+CODEX_HOOKS="$CODEX_DIR/hooks.json"
+BIN_LINK="$HOME/.local/bin/nightguard"
+PHRASE="я осознанно работаю ночью"
+JQ=$(command -v jq || echo /usr/bin/jq)
+
+if [ -t 1 ]; then B=$'\033[1m'; D=$'\033[2m'; R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; C=$'\033[36m'; N=$'\033[0m'
+else B=; D=; R=; G=; Y=; C=; N=; fi
+
+die() { echo "${R}✗${N} $*" >&2; exit 1; }
+ok()  { echo "${G}✓${N} $*"; }
+info(){ echo "${C}•${N} $*"; }
+
+# ---------- state ----------
+night_locked() { [ "$NG_ENABLED" = 1 ] && ng_in_window && [ "$(ng_pause_left)" -eq 0 ]; }
+require_day() {
+  night_locked && die "Сейчас ночь ($NG_START–$NG_END): менять настройки нельзя. Это и есть смысл ограничителя 🙂"
+  return 0
+}
+claude_installed() { [ -f "$CLAUDE_SETTINGS" ] && grep -q '/.night-guard/night-guard.sh' "$CLAUDE_SETTINGS"; }
+codex_installed()  { [ -f "$CODEX_HOOKS" ] && grep -q '/.night-guard/night-guard.sh' "$CODEX_HOOKS"; }
+blocks_today() { local n; n=$( [ -f "$NG_LOG" ] && grep "^$(date +%F)" "$NG_LOG" | grep -vc " pause " ); echo "${n:-0}"; }
+
+write_conf() {
+  mkdir -p "$NG_HOME"
+  cat > "$NG_CONF.tmp" <<EOF
+# Night Guard config. Лучше менять через \`nightguard\` или приложение в строке меню.
+# Время — 24-часовой формат HH:MM, местное время Mac.
+NIGHT_START=$NG_START
+NIGHT_END=$NG_END
+ENABLED=$NG_ENABLED
+PAUSE_MAX_MINUTES=$NG_PAUSE_MAX
+EOF
+  mv "$NG_CONF.tmp" "$NG_CONF"
+}
+
+# ---------- JSON patching (jq) ----------
+JQ_STRIP='def ngstrip: [ .[]? | .hooks = [ (.hooks // [])[] | select(((.command // "") | contains("/.night-guard/")) | not) ] | select((.hooks | length) > 0) ];'
+
+json_patch() { # file, jq-filter, extra jq args...
+  local f="$1" filter="$2"; shift 2
+  [ -x "$JQ" ] || die "Нужен jq (brew install jq)."
+  [ -f "$f" ] || echo '{}' > "$f"
+  "$JQ" -e . "$f" >/dev/null 2>&1 || die "$f — невалидный JSON, не трогаю его."
+  [ -f "$f.night-guard.bak" ] || cp "$f" "$f.night-guard.bak"
+  "$JQ" "$@" "$JQ_STRIP $filter" "$f" > "$f.ng.tmp" && "$JQ" -e . "$f.ng.tmp" >/dev/null && mv "$f.ng.tmp" "$f" \
+    || { rm -f "$f.ng.tmp"; die "Не удалось обновить $f"; }
+}
+
+ADD_FILTER='.hooks = (.hooks // {})
+  | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit | ngstrip) + [{hooks: [$h]}])
+  | .hooks.PreToolUse = ((.hooks.PreToolUse | ngstrip) + [{matcher: $m, hooks: [$h]}])'
+DEL_FILTER='if .hooks then
+    .hooks |= (with_entries(.value |= ngstrip) | with_entries(select((.value | length) > 0)))
+    | (if (.hooks | length) == 0 then del(.hooks) else . end)
+  else . end'
+
+hook_json() { printf '{"type":"command","command":"%s","timeout":10}' "$HOOK_PATH"; }
+
+# ---------- commands ----------
+copy_files() {
+  mkdir -p "$NG_HOME" "$(dirname "$BIN_LINK")"
+  if [ -n "$REPO_DIR" ]; then
+    cp "$REPO_DIR/hooks/night-guard.sh" "$NG_HOME/night-guard.sh.tmp" && mv "$NG_HOME/night-guard.sh.tmp" "$HOOK_PATH"
+    cp "$REPO_DIR/bin/nightguard" "$NG_HOME/nightguard.tmp" && mv "$NG_HOME/nightguard.tmp" "$NG_HOME/nightguard"
+    chmod +x "$HOOK_PATH" "$NG_HOME/nightguard"
+  fi
+  ln -sf "$NG_HOME/nightguard" "$BIN_LINK"
+  write_conf
+}
+
+cmd_install() {
+  local target="${1:-all}" did=0
+  copy_files
+  ok "Файлы установлены в ${NG_HOME/#$HOME/~}, команда: nightguard"
+  if [ "$target" = all ] || [ "$target" = claude ]; then
+    if [ -d "$(dirname "$CLAUDE_SETTINGS")" ]; then
+      json_patch "$CLAUDE_SETTINGS" "$ADD_FILTER" --argjson h "$(hook_json)" --arg m "*"
+      ok "Claude Code: хуки добавлены в ${CLAUDE_SETTINGS/#$HOME/~}"; did=1
+    else info "Claude Code не найден — пропускаю."; fi
+  fi
+  if [ "$target" = all ] || [ "$target" = codex ]; then
+    if [ -d "$CODEX_DIR" ]; then
+      json_patch "$CODEX_HOOKS" "$ADD_FILTER" --argjson h "$(hook_json)" --arg m ".*"
+      ok "Codex: хуки добавлены в ${CODEX_HOOKS/#$HOME/~}"
+      echo "  ${Y}!${N} Codex запускает хуки только после одобрения: открой Codex → ${B}/hooks${N} → доверь хукам Night Guard."
+      did=1
+    else info "Codex не найден — пропускаю."; fi
+  fi
+  [ "$did" = 1 ] || info "Ни Claude Code, ни Codex не найдены."
+  echo "  Расписание: ${B}$NG_START–$NG_END${N}. Изменить: nightguard schedule 23:30 07:00"
+}
+
+cmd_uninstall() {
+  local target="${1:-all}"
+  night_locked && confirm_phrase "удалить Night Guard ночью"
+  if [ "$target" = all ] || [ "$target" = claude ]; then
+    [ -f "$CLAUDE_SETTINGS" ] && json_patch "$CLAUDE_SETTINGS" "$DEL_FILTER" && ok "Claude Code: хуки удалены"
+  fi
+  if [ "$target" = all ] || [ "$target" = codex ]; then
+    if [ -f "$CODEX_HOOKS" ]; then
+      json_patch "$CODEX_HOOKS" "$DEL_FILTER"
+      [ "$("$JQ" -c . "$CODEX_HOOKS")" = "{}" ] && rm -f "$CODEX_HOOKS"
+      ok "Codex: хуки удалены"
+    fi
+  fi
+  if [ "$target" = all ]; then
+    rm -f "$BIN_LINK"
+    info "Настройки и журнал оставлены в ${NG_HOME/#$HOME/~} (удали папку вручную, если не нужны)."
+  fi
+}
+
+cmd_schedule() {
+  [ $# -eq 2 ] || die "Использование: nightguard schedule 23:00 07:00"
+  local s e
+  s=$(ng_to_min "$1") || die "Неверное время: $1 (нужно HH:MM)"
+  e=$(ng_to_min "$2") || die "Неверное время: $2 (нужно HH:MM)"
+  [ "$s" != "$e" ] || die "Начало и конец совпадают — окно было бы пустым."
+  require_day
+  NG_START=$(ng_fmt "$s"); NG_END=$(ng_fmt "$e")
+  write_conf
+  ok "Ночь теперь: $NG_START–$NG_END"
+}
+
+cmd_enable()  { NG_ENABLED=1; write_conf; ok "Night Guard включён ($NG_START–$NG_END)."; }
+cmd_disable() { require_day; NG_ENABLED=0; write_conf; ok "Night Guard выключен. Включить: nightguard on"; }
+
+confirm_phrase() { # $1 = what
+  local got="${NG_PHRASE:-}"
+  if [ -z "$got" ]; then
+    [ -t 0 ] || die "Нужно подтверждение. Передай NG_PHRASE=\"$PHRASE\"."
+    echo "Чтобы $1, напиши: ${B}$PHRASE${N}"
+    read -r -p "> " got
+  fi
+  [ "$got" = "$PHRASE" ] || die "Фраза не совпала. Иди спать 🌙"
+}
+
+night_id() { # date the current night started on
+  local s; s=$(ng_to_min "$NG_START")
+  if [ "$(ng_now_min)" -lt "$s" ]; then date -v-1d +%F; else date +%F; fi
+}
+
+cmd_pause() {
+  local min="${1:-15}"
+  case "$min" in [0-9]|[0-9][0-9]) min=$((10#$min)) ;; *) die "Минуты: число от 1 до $NG_PAUSE_MAX" ;; esac
+  [ "$min" -ge 1 ] && [ "$min" -le "$NG_PAUSE_MAX" ] || die "Пауза: от 1 до $NG_PAUSE_MAX минут."
+  [ "$NG_ENABLED" = 1 ] && ng_in_window || die "Сейчас не ночь — пауза не нужна."
+  [ "$(ng_pause_left)" -eq 0 ] || die "Пауза уже идёт."
+  [ "$(cat "$NG_HOME/last_pause" 2>/dev/null)" != "$(night_id)" ] || die "Пауза уже была этой ночью. Одна за ночь."
+  confirm_phrase "поставить паузу на $min мин"
+  echo $(( $(date +%s) + min * 60 )) > "$NG_PAUSE"
+  night_id > "$NG_HOME/last_pause"
+  ng_log "pause ${min}m"
+  ok "Пауза на $min мин. Потом блокировка вернётся сама."
+}
+
+cmd_status() {
+  local blocking=false in_win=false pause; pause=$(ng_pause_left)
+  ng_in_window && in_win=true
+  ng_blocking && blocking=true
+  if [ "${1:-}" = "--json" ]; then
+    local cl=false cx=false clp=false cxp=false
+    claude_installed && cl=true; codex_installed && cx=true
+    [ -d "$(dirname "$CLAUDE_SETTINGS")" ] && clp=true; [ -d "$CODEX_DIR" ] && cxp=true
+    printf '{"version":"%s","enabled":%s,"start":"%s","end":"%s","now":"%s","in_window":%s,"blocking":%s,"pause_left":%d,"pause_max":%d,"claude_present":%s,"claude_installed":%s,"codex_present":%s,"codex_installed":%s,"blocks_today":%d}\n' \
+      "$NG_VERSION" "$([ "$NG_ENABLED" = 1 ] && echo true || echo false)" "$NG_START" "$NG_END" "$(date +%H:%M)" \
+      "$in_win" "$blocking" "$pause" "$NG_PAUSE_MAX" "$clp" "$cl" "$cxp" "$cx" "$(blocks_today)"
+    return
+  fi
+  echo
+  if [ "$NG_ENABLED" != 1 ]; then echo "  ${Y}○ Night Guard выключен${N}"
+  elif [ "$blocking" = true ]; then echo "  ${R}🌙 Ночь — агенты заблокированы до $NG_END${N}"
+  elif [ "$pause" -gt 0 ]; then echo "  ${Y}⏸  Пауза: осталось $((pause / 60 + 1)) мин${N}"
+  else echo "  ${G}☀️  День — можно работать. Блокировка с $NG_START${N}"; fi
+  echo "  ${D}Сейчас $(date +%H:%M) · ночь $NG_START–$NG_END · блокировок сегодня: $(blocks_today)${N}"
+  printf '  Claude Code: %s\n' "$(claude_installed && echo "${G}подключён${N}" || echo "${D}не подключён${N}")"
+  printf '  Codex:       %s\n' "$(codex_installed && echo "${G}подключён${N} ${D}(не забудь /hooks → trust)${N}" || echo "${D}не подключён${N}")"
+  echo
+}
+
+cmd_log() { [ -f "$NG_LOG" ] && tail -n "${1:-20}" "$NG_LOG" || info "Журнал пуст."; }
+
+cmd_test() {
+  local out
+  out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"Bash"}' | NIGHT_GUARD_FORCE=1 NIGHT_GUARD_HOME="$(mktemp -d)" bash "$HOOK_SRC" 2>&1)
+  case "$out" in *'"permissionDecision":"deny"'*) ok "Хук отвечает deny в ночном режиме." ;; *) die "Хук не сработал: $out" ;; esac
+  out=$(echo '{"hook_event_name":"UserPromptSubmit","prompt":"x"}' | NIGHT_GUARD_FORCE=1 NIGHT_GUARD_HOME="$(mktemp -d)" bash "$HOOK_SRC" 2>&1)
+  case "$out" in *'"decision":"block"'*) ok "Хук блокирует промпты в ночном режиме." ;; *) die "Хук не сработал: $out" ;; esac
+}
+
+cmd_menu() {
+  while true; do
+    ng_load; clear 2>/dev/null; echo "${B}  Night Guard${N} ${D}v$NG_VERSION${N}"; cmd_status
+    echo "  1) Изменить расписание     4) Подключить к Claude/Codex"
+    echo "  2) Включить / выключить    5) Отключить от Claude/Codex"
+    echo "  3) Журнал блокировок       6) Пауза (только ночью, 1 раз)"
+    echo "  0) Выход"
+    read -r -p "  > " ch || exit 0
+    echo
+    case "$ch" in
+      1) read -r -p "  Начало ночи (HH:MM) [$NG_START]: " s; read -r -p "  Конец ночи (HH:MM) [$NG_END]: " e
+         ( cmd_schedule "${s:-$NG_START}" "${e:-$NG_END}" ) ;;
+      2) if [ "$NG_ENABLED" = 1 ]; then ( cmd_disable ); else ( cmd_enable ); fi ;;
+      3) ( cmd_log 30 ) ;;
+      4) ( cmd_install all ) ;;
+      5) ( cmd_uninstall all ) ;;
+      6) read -r -p "  На сколько минут? [15]: " m; ( cmd_pause "${m:-15}" ) ;;
+      0|q|"") exit 0 ;;
+    esac
+    echo; read -r -p "  Enter — назад в меню " _ || exit 0
+  done
+}
+
+usage() {
+  cat <<EOF
+${B}nightguard${N} — ночной ограничитель для Claude Code и Codex
+
+  nightguard                   интерактивное меню
+  nightguard status [--json]   текущее состояние
+  nightguard install [all|claude|codex]
+  nightguard uninstall [all|claude|codex]
+  nightguard schedule 23:00 07:00
+  nightguard on | off          включить / выключить (выключить ночью нельзя)
+  nightguard pause [мин]       пауза ночью: 1 раз за ночь, до $NG_PAUSE_MAX мин, с подтверждением
+  nightguard log [N]           последние блокировки
+  nightguard test              проверить, что хук блокирует
+EOF
+}
+
+case "${1:-}" in
+  "") if [ -t 0 ] && [ -t 1 ]; then cmd_menu; else cmd_status; fi ;;
+  status) shift; cmd_status "$@" ;;
+  install) shift; cmd_install "$@" ;;
+  uninstall) shift; cmd_uninstall "$@" ;;
+  schedule) shift; cmd_schedule "$@" ;;
+  on|enable) cmd_enable ;;
+  off|disable) cmd_disable ;;
+  pause) shift; cmd_pause "$@" ;;
+  log) shift; cmd_log "$@" ;;
+  test) cmd_test ;;
+  version|--version|-v) echo "$NG_VERSION" ;;
+  help|-h|--help) usage ;;
+  *) usage; exit 1 ;;
+esac
