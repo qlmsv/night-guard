@@ -134,8 +134,8 @@ ul.list li:last-child{border:0}
   <h2><span lang="ru">Аудит до релиза</span><span lang="en">Audited before release</span></h2>
   <div class="cols c2">
     <div class="card"><h3><span lang="ru">Найдено и исправлено</span><span lang="en">Found and fixed</span></h3><p>
-      <span lang="ru">· время «23:30» молча отключало защиту<br>· конфиг исполнялся как код<br>· без jq защита пропадала<br>· сбой приложения из-за ожидания процесса на главном потоке<br>· кириллица ломалась в PowerShell 5.1</span>
-      <span lang="en">· a “23:30” value silently disabled protection<br>· the config file ran as code<br>· without jq, protection disappeared<br>· the app crashed while waiting on a process on the main thread<br>· Cyrillic text broke in PowerShell 5.1</span></p></div>
+      <span lang="ru">· пауза открывала ночные настройки — защиту можно было выключить<br>· время «23:30» молча отключало защиту<br>· конфиг исполнялся как код<br>· пробел в пути отключал хук<br>· сбой приложения из-за ожидания процесса на главном потоке<br>· кириллица ломалась в PowerShell 5.1</span>
+      <span lang="en">· a pause unlocked night settings, so protection could be switched off<br>· a “23:30” value silently disabled protection<br>· the config file ran as code<br>· a space in the path disabled the hook<br>· the app crashed while waiting on a process on the main thread<br>· Cyrillic text broke in PowerShell 5.1</span></p></div>
     <div class="card"><h3><span lang="ru">Проверяется в CI</span><span lang="en">Checked in CI</span></h3><p>
       <span lang="ru">macOS · Linux · Windows (PowerShell 5.1 и 7).<br>Хук запускается через cmd, PowerShell и Git Bash — так, как его вызовут агенты.</span>
       <span lang="en">macOS · Linux · Windows (PowerShell 5.1 and 7).<br>The hook runs through cmd, PowerShell and Git Bash, the same ways the agents call it.</span></p></div>

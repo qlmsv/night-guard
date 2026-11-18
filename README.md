@@ -1,10 +1,9 @@
 # 🌙 Night Guard
 
-**Ночной ограничитель вайбкодинга для Claude Code и Codex.** С 23:00 до 07:00 (настраивается) агенты не принимают промпты и не выполняют действия — ни новые задачи, ни те, что уже бегут в фоне.
+[![tests](https://github.com/qlmsv/night-guard/actions/workflows/tests.yml/badge.svg)](https://github.com/qlmsv/night-guard/actions/workflows/tests.yml)
+**[Сайт](https://qlmsv.github.io/night-guard/) · [Презентация](https://qlmsv.github.io/night-guard/slides.html) · [English](#english)**
 
-*Self-imposed night lock for AI coding agents (Claude Code + OpenAI Codex) on macOS: blocks prompts and tool calls during your night window via official hooks. CLI + menu bar app.*
-
----
+**Ночной ограничитель вайбкодинга для Claude Code и Codex.** С 23:00 до 07:00 (настраивается) агенты не принимают промпты и не выполняют действия — ни новые задачи, ни те, что уже бегут в фоне. macOS, Windows, Linux.
 
 ## Как это работает
 
@@ -13,39 +12,53 @@ Night Guard ставит официальный **хук** в оба агент�
 | Событие | Что происходит ночью |
 |---|---|
 | `UserPromptSubmit` | промпт не отправляется, ты видишь «Иди спать — продолжим утром» |
-| `PreToolUse` (все инструменты) | любое действие агента запрещено — даже задача, запущенная вечером, остановится |
+| `PreToolUse` | действие агента запрещено — даже в задаче, запущенной вечером |
 
-Хук — один bash-скрипт без зависимостей, конфиг читается как данные (никогда не исполняется). Если конфиг испорчен, используется безопасное расписание по умолчанию — защита не отключается молча.
+Хук — маленький скрипт без зависимостей: bash на macOS/Linux, PowerShell (5.1 и 7) на Windows. Конфиг читается как данные и никогда не исполняется. Если конфиг испорчен, включается расписание по умолчанию — защита не отключается молча.
 
 ## Установка
 
+### macOS
+
 ```bash
 git clone https://github.com/qlmsv/night-guard.git
-cd night-guard
-./install.sh
+cd night-guard && ./install.sh
 ```
 
-Что ставится:
-- `~/.night-guard/` — хук, CLI, конфиг, журнал;
-- команда `nightguard` (в `~/.local/bin`);
-- хуки в `~/.claude/settings.json` и `~/.codex/hooks.json` (существующие настройки сохраняются, создаётся `*.night-guard.bak`);
-- **Night Guard.app** в `~/Applications` — луна в строке меню (нужен `swiftc`: `xcode-select --install`; без него — `./install.sh --no-app`).
+Ставит хуки, команду `nightguard` (в `~/.local/bin`) и **Night Guard.app** — луну в строке меню. Приложение собирается из исходников, нужен `swiftc` (`xcode-select --install`); без него — `./install.sh --no-app`.
 
-> **Codex:** он запускает пользовательские хуки только после одобрения. Один раз открой Codex, выполни `/hooks` и доверь хукам Night Guard.
+### Windows
+
+```powershell
+git clone https://github.com/qlmsv/night-guard.git
+cd night-guard
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+Без git: **Code → Download ZIP**, распакуйте и выполните последнюю команду в этой папке. Ставит хуки, команду `nightguard` (папка `%USERPROFILE%\.night-guard\bin` добавляется в PATH пользователя), **значок в трее** и ярлыки в «Автозагрузке» и меню «Пуск».
+
+### Linux
+
+```bash
+git clone https://github.com/qlmsv/night-guard.git
+cd night-guard && ./install.sh --no-app
+```
+
+Нужны `bash` и `jq`.
+
+> **Codex** запускает пользовательские хуки только после одобрения. Один раз откройте Codex, выполните `/hooks` и доверьте хукам Night Guard. После обновления Night Guard может понадобиться одобрить снова.
+
+Установщик меняет только свои записи в `~/.claude/settings.json` и `~/.codex/hooks.json`, остальное сохраняет и делает копию `*.night-guard.bak`. Повторная установка ничего не дублирует.
 
 ## Интерфейс
 
-**Строка меню** — клик по луне:
-- статус (☀️ день / 🌙 ночь / ⏸ пауза), счётчик блокировок за сегодня;
-- расписание (выбор времени) и переключатель вкл/выкл;
-- подключение/отключение Claude Code и Codex одной кнопкой;
-- экстренная пауза ночью, журнал, автозапуск при входе.
-
-**Терминал** — `nightguard` без аргументов открывает меню:
+- **macOS** — луна в строке меню: статус, расписание, вкл/выкл, подключение Claude Code и Codex, экстренная пауза, журнал, автозапуск.
+- **Windows** — значок в трее (клик — окно настроек, правый клик — меню) с теми же возможностями.
+- **Терминал** — `nightguard` без аргументов открывает меню:
 
 ```
 nightguard                     интерактивное меню
-nightguard status [--json]     состояние
+nightguard status [--json]     состояние   (Windows: -Json)
 nightguard schedule 23:30 07:00
 nightguard on | off
 nightguard pause 15            экстренная пауза
@@ -57,34 +70,50 @@ nightguard install | uninstall [all|claude|codex]
 ## Правила ночного режима
 
 Это ограничитель для себя, поэтому ночью он упрямый:
-- **нельзя** менять расписание и выключать Night Guard;
+- **нельзя** менять расписание и выключать Night Guard — в том числе во время паузы;
 - отключить хуки можно только после ввода фразы «я осознанно работаю ночью»;
-- **пауза** — один раз за ночь, максимум 30 минут, тоже с фразой; потом блокировка возвращается сама.
+- **пауза** — один раз за ночь, максимум 30 минут, тоже с фразой; пауза лишь пускает агентов, но не открывает настройки. Потом блокировка возвращается сама.
 
 Днём всё настраивается свободно. Это не замок от решительного человека (файлы можно поправить руками), а трение, которого хватает, чтобы закрыть ноутбук.
 
 ## Ограничения
 
-- Работает для **локальных** Claude Code (терминал, вкладка Code в приложении Claude, IDE) и Codex (CLI, приложение). Облачные сессии и веб-чаты не затрагиваются.
-- Хостовые инструменты Codex (например, встроенный веб-поиск) не проходят через `PreToolUse`, но новый промпт всё равно заблокирован.
-- Время — по часам Mac.
+- Работает для **локальных** Claude Code (терминал, приложение, IDE) и Codex (CLI, приложение). Облачные сессии и веб-чаты не затрагиваются.
+- Codex: хостовые инструменты (например, встроенный веб-поиск) не проходят через `PreToolUse`, но новый промпт всё равно блокируется.
+- Windows: если групповая политика запрещает скрипты PowerShell (ExecutionPolicy на уровне MachinePolicy/UserPolicy), хук не сможет запуститься — проверьте командой `nightguard test`. Каждый вызов инструмента днём добавляет ~0,3–0,5 с на старт PowerShell.
+- Windows PowerShell 5.1 переформатирует `settings.json` при записи (содержимое сохраняется, есть резервная копия).
+- Время — по часам компьютера.
 
 ## Удаление
 
 ```bash
-nightguard uninstall      # убирает хуки и команду; конфиг и журнал остаются в ~/.night-guard
-rm -rf ~/.night-guard ~/Applications/Night\ Guard.app
+nightguard uninstall      # убирает хуки, команду и автозапуск; конфиг и журнал остаются
 ```
+
+Затем при желании удалите `~/.night-guard` (Windows: `%USERPROFILE%\.night-guard`) и `~/Applications/Night Guard.app`.
 
 ## Разработка
 
 ```bash
-tests/run.sh          # 42 теста в изолированном временном HOME, реальные конфиги не трогаются
-app/build.sh          # собрать приложение в app/build/
+tests/run.sh                                       # macOS / Linux
+powershell -ExecutionPolicy Bypass -File tests/run.ps1   # Windows (5.1 и 7)
+app/build.sh                                       # собрать приложение для macOS
 ```
 
-Отладка интерфейса: `"Night Guard.app/Contents/MacOS/NightGuard" --preview` открывает панель в обычном окне.
+Тесты работают в изолированном временном профиле и не трогают реальные настройки. CI гоняет их на macOS, Linux и Windows (оба PowerShell), включая запуск хука через cmd, PowerShell и Git Bash — так, как его вызывают агенты.
 
-## Лицензия
+---
+
+## English
+
+**Night Guard is a self-imposed night-time lock for AI coding agents.** From 11 pm to 7 am (configurable), Claude Code and OpenAI Codex refuse prompts (`UserPromptSubmit`) and every tool call (`PreToolUse`), including tasks already running. Works on macOS (menu bar app), Windows (tray app) and Linux (CLI).
+
+**Install**: macOS/Linux: `./install.sh` (Linux: `--no-app`). Windows: `powershell -ExecutionPolicy Bypass -File install.ps1`. Then, in Codex, run `/hooks` once and trust the Night Guard hooks.
+
+**Night rules**: at night you can't change the schedule or turn it off, even during a pause. Uninstalling requires typing a confirmation phrase. You get one emergency pause per night, up to 30 minutes. It's friction, not DRM.
+
+See the [website](https://qlmsv.github.io/night-guard/?lang=en) and [slides](https://qlmsv.github.io/night-guard/slides.html?lang=en).
+
+## License
 
 MIT
