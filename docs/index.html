@@ -27,7 +27,7 @@ h2{font-size:clamp(28px,4vw,44px);line-height:1.1}
 h3{font-size:19px;font-weight:500}
 code,pre,kbd{font-family:var(--mono)}
 .wrap{max-width:1120px;margin:0 auto;padding:0 20px}
-.sky{position:fixed;inset:0;z-index:-1;background:radial-gradient(1200px 600px at 75% -10%,#1d2363 0%,transparent 60%),radial-gradient(900px 500px at 0% 30%,#1a1240 0%,transparent 60%),var(--bg)}
+.sky{position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,#0e1330 0%,var(--bg) 70%)}
 .sky i{position:absolute;width:2px;height:2px;border-radius:50%;background:#fff;opacity:.6;animation:tw 4s infinite ease-in-out}
 @keyframes tw{50%{opacity:.15}}
 @media (prefers-reduced-motion:reduce){.sky i,.moon{animation:none!important}}
@@ -119,7 +119,7 @@ section{padding:80px 0}
 .code pre{margin:0;font-size:14.5px;color:#d6daf7;white-space:pre}
 .code .c{color:#6b739c}
 .copy{position:absolute;top:10px;right:10px;background:var(--card);border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:5px 10px;font:12px "Onest";cursor:pointer}
-.note{border-left:3px solid var(--warn);background:rgba(251,191,36,.07);padding:14px 18px;border-radius:0 12px 12px 0;color:#f3e5bf;margin-top:16px;font-size:15.5px}
+.note{border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.06);padding:14px 18px;border-radius:12px;color:#f3e5bf;margin-top:16px;font-size:15.5px}
 
 details{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin-bottom:10px}
 summary{cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between}
