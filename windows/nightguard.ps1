@@ -183,8 +183,10 @@ function Uninstall-NightGuard([string]$Target = 'all', [string]$Phrase = $env:NG
         if ($userPath -and -not $env:NG_NO_PATH) {
             [Environment]::SetEnvironmentVariable('Path', (@($userPath -split ';') | Where-Object { $_ -and $_ -ne $script:BinDir }) -join ';', 'User')
         }
-        $lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Night Guard.lnk'
-        if ($lnk -and (Test-Path -LiteralPath $lnk)) { Remove-Item -LiteralPath $lnk -Force }
+        foreach ($folder in @('Startup', 'Programs')) {
+            $dir = [Environment]::GetFolderPath($folder)
+            if ($dir) { $lnk = Join-Path $dir 'Night Guard.lnk'; if (Test-Path -LiteralPath $lnk) { Remove-Item -LiteralPath $lnk -Force } }
+        }
         [void]$out.Add("• Настройки и журнал оставлены в $script:NgHome (удалите папку вручную, если не нужны).")
     }
     $out

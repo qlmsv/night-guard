@@ -120,6 +120,7 @@ if ($gitBash) { T 'via Git Bash' { (($payload | & $gitBash -c $cmdLine) -join ''
 
 Set-Conf $DayS $DayE
 $r = Invoke-Cli @('uninstall')
+if ($r.Code -ne 0) { Write-Host "       > $($r.Out)" }
 $sj = [IO.File]::ReadAllText($S) | ConvertFrom-Json
 T 'uninstall exits 0' { $r.Code -eq 0 }
 T 'claude: only our hooks removed' { ([IO.File]::ReadAllText($S) -notmatch 'night-guard') -and (@($sj.hooks.PreToolUse)[0].matcher -eq 'Bash') }

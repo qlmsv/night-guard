@@ -7,7 +7,7 @@ export HOME="$T/home"; mkdir -p "$HOME/.claude" "$HOME/.codex"
 unset NIGHT_GUARD_HOME CLAUDE_CONFIG_DIR CODEX_HOME NIGHT_GUARD_FORCE NG_PHRASE
 CLI="$ROOT/bin/nightguard"; HOOK="$ROOT/hooks/night-guard.sh"
 PASS=0; FAIL=0
-t() { if eval "$2" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  ok   $1"; else FAIL=$((FAIL+1)); echo "  FAIL $1"; fi; }
+t() { if eval "$2" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  ok   $1"; else FAIL=$((FAIL+1)); echo "  FAIL $1"; (eval "$2" 2>&1 | head -5 | sed "s/^/       > /"); fi; }
 
 NG_LIB_ONLY=1 . "$HOOK"; unset NG_LIB_ONLY
 now=$(ng_now_min)
