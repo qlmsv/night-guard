@@ -42,7 +42,7 @@ t "day: allows silently" '[ -z "$(hook "{\"hook_event_name\":\"PreToolUse\"}")" 
 conf "$NIGHT_S" "$NIGHT_E"
 t "night: PreToolUse deny is valid JSON" 'hook "{\"hook_event_name\": \"PreToolUse\", \"tool_name\": \"Bash\"}" | jq -e ".hookSpecificOutput.permissionDecision == \"deny\""'
 t "night: prompt blocked"   'hook "{\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"hi\"}" | jq -e ".decision == \"block\""'
-t "night: unknown event -> exit 2" '! hook "{}"'
+t "night: unknown event -> exactly exit 2" 'hook "{}"; [ $? -eq 2 ]'
 t "night: blocks are logged" 'grep -q "PreToolUse Bash" "$HOME/.night-guard/blocked.log"'
 conf "$NIGHT_S" "$NIGHT_E" 0
 t "disabled: allows"        '[ -z "$(hook "{\"hook_event_name\":\"PreToolUse\"}")" ]'
@@ -91,6 +91,32 @@ t "tampered pause file ignored"  'hook "{\"hook_event_name\":\"PreToolUse\"}" | 
 conf "$DAY_S" "$DAY_E"
 t "day: schedule allowed"        '"$CLI" schedule 23:30 06:45 && grep -q "NIGHT_START=23:30" "$HOME/.night-guard/config"'
 t "schedule rejects bad time"    '! "$CLI" schedule 25:00 07:00'
+
+echo "audit regressions"
+conf "$NIGHT_S" "$NIGHT_E"; rm -f "$HOME/.night-guard/last_pause" "$HOME/.night-guard/pause_until"
+NG_PHRASE="я осознанно работаю ночью" "$CLI" pause 5 >/dev/null 2>&1
+t "pause active (precondition)"           '[ -n "$(cat "$HOME/.night-guard/pause_until")" ]'
+t "during pause: off still refused"       '! "$CLI" off && grep -q "ENABLED=1" "$HOME/.night-guard/config"'
+t "during pause: schedule still refused"  '! "$CLI" schedule 01:00 02:00'
+t "during pause: uninstall needs phrase"  '! "$CLI" uninstall </dev/null && grep -q night-guard "$S"'
+t "status --json reports in_window during pause" '"$CLI" status --json | jq -e ".in_window and (.blocking | not)"'
+rm -f "$HOME/.night-guard/pause_until"
+
+SP="$T/with space"; mkdir -p "$SP/.claude" "$SP/.codex"
+HOME="$SP" "$CLI" install >/dev/null 2>&1
+cmdline=$(jq -r '.hooks.PreToolUse[-1].hooks[0].command' "$SP/.claude/settings.json")
+t "home with a space: hook command still runs (no fail-open)" 'echo "{\"hook_event_name\":\"PreToolUse\"}" | NIGHT_GUARD_FORCE=1 sh -c "$cmdline" | grep -q deny'
+
+conf "$DAY_S" "$DAY_E"
+mkdir -p "$T/dotfiles"; echo '{"hooks":{"Notification":[{"matcher":"x"}],"Stop":[]}}' > "$T/dotfiles/settings.json"
+ln -sf "$T/dotfiles/settings.json" "$S"
+"$CLI" install claude >/dev/null 2>&1
+t "symlinked settings: link kept, target updated" '[ -L "$S" ] && grep -q night-guard "$T/dotfiles/settings.json"'
+"$CLI" uninstall claude >/dev/null 2>&1
+t "uninstall keeps groups without hooks + empty events" 'jq -e ".hooks.Notification[0].matcher == \"x\" and (.hooks.Stop | length) == 0" "$T/dotfiles/settings.json"'
+rm -f "$S"; : > "$S"
+t "empty settings.json is treated as {}" '"$CLI" install claude && jq -e ".hooks.PreToolUse" "$S"'
+t "nightguard test leaves no temp dirs" 'before=$(ls -d "${TMPDIR:-/tmp}"/tmp.* 2>/dev/null | wc -l); "$CLI" test; after=$(ls -d "${TMPDIR:-/tmp}"/tmp.* 2>/dev/null | wc -l); [ "$after" -le "$before" ]'
 
 echo; echo "passed: $PASS  failed: $FAIL"
 [ "$FAIL" -eq 0 ]

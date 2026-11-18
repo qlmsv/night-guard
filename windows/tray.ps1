@@ -3,6 +3,9 @@
 # Pure PowerShell + WinForms: nothing to compile or install.
 
 $ErrorActionPreference = 'Stop'
+$script:OpenAtStart = $args -contains '-Open'   # read before dot-sourcing replaces $args
+$env:NG_NO_PROMPT = '1'                          # never block the UI thread on Read-Host
+$Inv = [Globalization.CultureInfo]::InvariantCulture
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
@@ -174,18 +177,19 @@ function Update-NgUi {
         $lblState.Text = Get-NgStateText $s
         $lblSub.Text = "Сейчас $($s.now) · блокировок сегодня: $($s.blocks_today)"
         $chkEnabled.Checked = $s.enabled
-        $chkEnabled.Enabled = -not ($s.blocking -and $s.enabled)
+        $locked = $s.enabled -and $s.in_window   # pause never unlocks settings
+        $chkEnabled.Enabled = -not $locked
         if (-not $script:ScheduleEdited) {
-            $dtStart.Value = [datetime]::ParseExact($s.start, 'HH:mm', $null)
-            $dtEnd.Value = [datetime]::ParseExact($s.end, 'HH:mm', $null)
+            $dtStart.Value = [datetime]::ParseExact($s.start, 'HH:mm', $Inv)
+            $dtEnd.Value = [datetime]::ParseExact($s.end, 'HH:mm', $Inv)
         }
-        foreach ($c in @($dtStart, $dtEnd, $btnSave)) { $c.Enabled = -not $s.blocking }
-        $lblLock.Text = $(if ($s.blocking) { 'Ночью расписание менять нельзя.' } else { '' })
+        foreach ($c in @($dtStart, $dtEnd, $btnSave)) { $c.Enabled = -not $locked }
+        $lblLock.Text = $(if ($locked) { 'Ночью расписание менять нельзя.' } else { '' })
         $btnClaude.Text = $(if ($s.claude_installed) { 'Отключить' } else { 'Подключить' })
-        $btnClaude.Enabled = $s.claude_present -and -not ($s.blocking -and $s.claude_installed)
+        $btnClaude.Enabled = $s.claude_present -and -not ($locked -and $s.claude_installed)
         $lblClaude.Text = 'Claude Code — ' + $(if (-not $s.claude_present) { 'не найден' } elseif ($s.claude_installed) { 'подключён' } else { 'не подключён' })
         $btnCodex.Text = $(if ($s.codex_installed) { 'Отключить' } else { 'Подключить' })
-        $btnCodex.Enabled = $s.codex_present -and -not ($s.blocking -and $s.codex_installed)
+        $btnCodex.Enabled = $s.codex_present -and -not ($locked -and $s.codex_installed)
         $lblCodex.Text = 'Codex — ' + $(if (-not $s.codex_present) { 'не найден' } elseif ($s.codex_installed) { 'подключён' } else { 'не подключён' })
         $lblCodexNote.Visible = $s.codex_installed
         $grpPause.Visible = $s.blocking
@@ -207,7 +211,7 @@ function Invoke-NgAction([scriptblock]$Action) {
 $script:ScheduleEdited = $false
 $dtStart.Add_ValueChanged({ if (-not $script:Refreshing) { $script:ScheduleEdited = $true } })
 $dtEnd.Add_ValueChanged({ if (-not $script:Refreshing) { $script:ScheduleEdited = $true } })
-$btnSave.Add_Click({ Invoke-NgAction { Set-NgSchedule $dtStart.Value.ToString('HH:mm') $dtEnd.Value.ToString('HH:mm') } })
+$btnSave.Add_Click({ Invoke-NgAction { Set-NgSchedule $dtStart.Value.ToString('HH:mm', $Inv) $dtEnd.Value.ToString('HH:mm', $Inv) } })
 $chkEnabled.Add_CheckedChanged({
     if ($script:Refreshing) { return }
     if ($chkEnabled.Checked) { Invoke-NgAction { Enable-NightGuard } } else { Invoke-NgAction { Disable-NightGuard } }
@@ -254,7 +258,7 @@ $timer.Add_Tick({ try { Update-NgUi } catch { } })
 $timer.Start()
 Update-NgUi
 
-if ($args -contains '-Open') { Show-NgWindow }
+if ($script:OpenAtStart) { Show-NgWindow }
 [System.Windows.Forms.Application]::Run()
 $tray.Dispose()
 $script:Mutex.ReleaseMutex()

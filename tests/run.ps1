@@ -104,7 +104,7 @@ $sj = [IO.File]::ReadAllText($S) | ConvertFrom-Json
 T 'claude: idempotent (1 entry each)' { @($sj.hooks.PreToolUse | ForEach-Object { $_.hooks } | Where-Object { $_.command -match 'night-guard' }).Count -eq 1 -and @($sj.hooks.UserPromptSubmit).Count -eq 1 }
 T 'claude: other hooks kept' { @($sj.hooks.PreToolUse | Where-Object { $_.matcher -eq 'Bash' }).Count -eq 1 }
 T 'claude: other settings kept' { $sj.permissions.allow[0] -eq 'Read(*)' }
-T 'claude: hooks arrays not nested' { $sj.hooks.PreToolUse[0].hooks -is [array] -or $sj.hooks.PreToolUse[0].hooks.command }
+T 'claude: hooks are real JSON arrays (raw text)' { ([IO.File]::ReadAllText($S) -match '"PreToolUse":\s*\[') -and ([IO.File]::ReadAllText($S) -match '"hooks":\s*\[\s*\{\s*"type"') -and -not ([IO.File]::ReadAllText($S) -match '\[\s*\[') }
 T 'codex: hooks.json created' { (@(([IO.File]::ReadAllText($X) | ConvertFrom-Json).hooks.PreToolUse)[0]).matcher -eq '.*' }
 T 'status -Json valid' { $j = (Invoke-Cli @('status', '-Json')).Out | ConvertFrom-Json; $j.claude_installed -and $j.codex_installed }
 T 'installed CLI self-test' { (& $Exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $NgDir 'nightguard.ps1') test 2>&1 | Out-String) -match 'deny' }
@@ -147,6 +147,45 @@ T 'tampered pause file ignored' { (Invoke-Hook '{"hook_event_name":"PreToolUse"}
 Set-Conf $DayS $DayE
 T 'day: schedule allowed' { (Invoke-Cli @('schedule', '23:30', '06:45')).Code -eq 0 -and ([IO.File]::ReadAllText((Join-Path $NgDir 'config')) -match 'NIGHT_START=23:30') }
 T 'schedule rejects bad time' { (Invoke-Cli @('schedule', '25:00', '07:00')).Code -ne 0 }
+
+Write-Host 'audit regressions'
+Set-Conf $NightS $NightE
+foreach ($f in 'last_pause', 'pause_until') { Remove-Item (Join-Path $NgDir $f) -ErrorAction SilentlyContinue }
+$env:NG_PHRASE = $Phrase; [void](Invoke-Cli @('pause', '5')); Remove-Item Env:NG_PHRASE
+T 'pause active (precondition)' { Test-Path (Join-Path $NgDir 'pause_until') }
+T 'during pause: off still refused' { (Invoke-Cli @('off')).Code -ne 0 -and ([IO.File]::ReadAllText((Join-Path $NgDir 'config')) -match 'ENABLED=1') }
+T 'during pause: schedule still refused' { (Invoke-Cli @('schedule', '01:00', '02:00')).Code -ne 0 }
+T 'during pause: uninstall needs phrase' { (Invoke-Cli @('uninstall')).Code -ne 0 -and ([IO.File]::ReadAllText($S) -match 'night-guard') }
+T 'status -Json reports in_window during pause' { $j = (Invoke-Cli @('status', '-Json')).Out | ConvertFrom-Json; $j.in_window -and -not $j.blocking }
+T 'no Read-Host hang without console (NG_NO_PROMPT)' {
+    $env:NG_NO_PROMPT = '1'; $env:NG_CLI_LIB = '1'
+    try { . $Cli; Uninstall-NightGuard 'claude' ''; $false } catch { $_.Exception.Message -match 'NG_PHRASE' } finally { Remove-Item Env:NG_NO_PROMPT, Env:NG_CLI_LIB -ErrorAction SilentlyContinue }
+}
+Remove-Item (Join-Path $NgDir 'pause_until') -ErrorAction SilentlyContinue
+
+$SpHome = Join-Path $T 'with space'
+New-Item -ItemType Directory -Path (Join-Path $SpHome '.claude') -Force | Out-Null
+$saved = $env:USERPROFILE; $env:USERPROFILE = $SpHome
+[void](Invoke-Cli @('install', 'claude'))
+$env:USERPROFILE = $saved
+$spCmd = @((([IO.File]::ReadAllText((Join-Path $SpHome '.claude\settings.json'))) | ConvertFrom-Json).hooks.PreToolUse)[-1].hooks[0].command
+$env:NIGHT_GUARD_FORCE = '1'
+T 'profile path with a space: hook still runs via cmd.exe' { (($payload | cmd.exe /d /c $spCmd) -join '') -match '"deny"' }
+Remove-Item Env:NIGHT_GUARD_FORCE
+
+Set-Conf $DayS $DayE
+[IO.File]::WriteAllText($S, '{"hooks":{"Notification":[{"matcher":"x"}],"Stop":[]}}', $Utf8)
+[void](Invoke-Cli @('install', 'claude')); [void](Invoke-Cli @('uninstall', 'claude'))
+$raw = [IO.File]::ReadAllText($S)
+T 'uninstall keeps groups without hooks + empty events' { ($raw -notmatch 'night-guard') -and ($raw -match '"matcher":\s*"x"') -and ($raw -match '"Stop"') }
+[IO.File]::WriteAllText($S, '', $Utf8)
+T 'empty settings.json is treated as {}' { (Invoke-Cli @('install', 'claude')).Code -eq 0 -and ([IO.File]::ReadAllText($S) -match 'PreToolUse') }
+T 'hook timeout is generous (60s) for cold PowerShell starts' { ([IO.File]::ReadAllText($S) | ConvertFrom-Json).hooks.PreToolUse[-1].hooks[0].timeout -eq 60 }
+$prev = [Threading.Thread]::CurrentThread.CurrentCulture
+try {
+    [Threading.Thread]::CurrentThread.CurrentCulture = 'fi-FI'
+    T 'fi-FI culture: time stays HH:mm' { (Get-Date -Format 'HH\:mm') -match '^\d\d:\d\d$' }
+} finally { [Threading.Thread]::CurrentThread.CurrentCulture = $prev }
 
 Remove-Item -LiteralPath $T -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''

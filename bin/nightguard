@@ -37,9 +37,10 @@ ok()  { echo "${G}✓${N} $*"; }
 info(){ echo "${C}•${N} $*"; }
 
 # ---------- state ----------
-night_locked() { [ "$NG_ENABLED" = 1 ] && ng_in_window && [ "$(ng_pause_left)" -eq 0 ]; }
+# Night lock ignores an active pause: a pause only lets the agents work, it never unlocks settings.
+night_locked() { [ "$NG_ENABLED" = 1 ] && ng_in_window; }
 require_day() {
-  night_locked && die "Сейчас ночь ($NG_START–$NG_END): менять настройки нельзя. Это и есть смысл ограничителя 🙂"
+  night_locked && die "Сейчас ночь (${NG_START}–$NG_END): менять настройки нельзя. Это и есть смысл ограничителя 🙂"
   return 0
 }
 claude_installed() { [ -f "$CLAUDE_SETTINGS" ] && grep -q '/.night-guard/night-guard.sh' "$CLAUDE_SETTINGS"; }
@@ -60,15 +61,16 @@ EOF
 }
 
 # ---------- JSON patching (jq) ----------
-JQ_STRIP='def ngstrip: [ .[]? | .hooks = [ (.hooks // [])[] | select(((.command // "") | contains("/.night-guard/")) | not) ] | select((.hooks | length) > 0) ];'
+JQ_STRIP='def ours: ((.command // "") | contains("/.night-guard/night-guard."));
+def ngstrip: [ .[]? | if ((.hooks // []) | any(ours)) then (.hooks |= map(select(ours | not))) | select((.hooks | length) > 0) else . end ];'
 
 json_patch() { # file, jq-filter, extra jq args...
   local f="$1" filter="$2"; shift 2
   [ -x "$JQ" ] || die "Нужен jq (brew install jq)."
-  [ -f "$f" ] || echo '{}' > "$f"
+  { [ -f "$f" ] && grep -q '[^[:space:]]' "$f"; } || echo '{}' > "$f"
   "$JQ" -e . "$f" >/dev/null 2>&1 || die "$f — невалидный JSON, не трогаю его."
   [ -f "$f.night-guard.bak" ] || cp "$f" "$f.night-guard.bak"
-  "$JQ" "$@" "$JQ_STRIP $filter" "$f" > "$f.ng.tmp" && "$JQ" -e . "$f.ng.tmp" >/dev/null && mv "$f.ng.tmp" "$f" \
+  "$JQ" "$@" "$JQ_STRIP $filter" "$f" > "$f.ng.tmp" && "$JQ" -e . "$f.ng.tmp" >/dev/null && cat "$f.ng.tmp" > "$f" && rm -f "$f.ng.tmp" \
     || { rm -f "$f.ng.tmp"; die "Не удалось обновить $f"; }
 }
 
@@ -76,11 +78,12 @@ ADD_FILTER='.hooks = (.hooks // {})
   | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit | ngstrip) + [{hooks: [$h]}])
   | .hooks.PreToolUse = ((.hooks.PreToolUse | ngstrip) + [{matcher: $m, hooks: [$h]}])'
 DEL_FILTER='if .hooks then
-    .hooks |= (with_entries(.value |= ngstrip) | with_entries(select((.value | length) > 0)))
+    .hooks |= with_entries(if (.value | tostring | contains("/.night-guard/night-guard.")) then (.value |= ngstrip) | select((.value | length) > 0) else . end)
     | (if (.hooks | length) == 0 then del(.hooks) else . end)
   else . end'
 
-hook_json() { printf '{"type":"command","command":"%s","timeout":10}' "$HOOK_PATH"; }
+# Path is quoted so a space in it cannot turn the hook into a non-blocking error (fail-open).
+hook_json() { "$JQ" -cn --arg c "\"$HOOK_PATH\"" '{type: "command", command: $c, timeout: 10}'; }
 
 # ---------- commands ----------
 copy_files() {
@@ -113,7 +116,7 @@ cmd_install() {
     else info "Codex не найден — пропускаю."; fi
   fi
   [ "$did" = 1 ] || info "Ни Claude Code, ни Codex не найдены."
-  echo "  Расписание: ${B}$NG_START–$NG_END${N}. Изменить: nightguard schedule 23:30 07:00"
+  echo "  Расписание: ${B}${NG_START}–$NG_END${N}. Изменить: nightguard schedule 23:30 07:00"
 }
 
 cmd_uninstall() {
@@ -144,10 +147,10 @@ cmd_schedule() {
   require_day
   NG_START=$(ng_fmt "$s"); NG_END=$(ng_fmt "$e")
   write_conf
-  ok "Ночь теперь: $NG_START–$NG_END"
+  ok "Ночь теперь: ${NG_START}–$NG_END"
 }
 
-cmd_enable()  { NG_ENABLED=1; write_conf; ok "Night Guard включён ($NG_START–$NG_END)."; }
+cmd_enable()  { NG_ENABLED=1; write_conf; ok "Night Guard включён (${NG_START}–$NG_END)."; }
 cmd_disable() { require_day; NG_ENABLED=0; write_conf; ok "Night Guard выключен. Включить: nightguard on"; }
 
 confirm_phrase() { # $1 = what
@@ -197,7 +200,7 @@ cmd_status() {
   elif [ "$blocking" = true ]; then echo "  ${R}🌙 Ночь — агенты заблокированы до $NG_END${N}"
   elif [ "$pause" -gt 0 ]; then echo "  ${Y}⏸  Пауза: осталось $((pause / 60 + 1)) мин${N}"
   else echo "  ${G}☀️  День — можно работать. Блокировка с $NG_START${N}"; fi
-  echo "  ${D}Сейчас $(date +%H:%M) · ночь $NG_START–$NG_END · блокировок сегодня: $(blocks_today)${N}"
+  echo "  ${D}Сейчас $(date +%H:%M) · ночь ${NG_START}–$NG_END · блокировок сегодня: $(blocks_today)${N}"
   printf '  Claude Code: %s\n' "$(claude_installed && echo "${G}подключён${N}" || echo "${D}не подключён${N}")"
   printf '  Codex:       %s\n' "$(codex_installed && echo "${G}подключён${N} ${D}(не забудь /hooks → trust)${N}" || echo "${D}не подключён${N}")"
   echo
@@ -206,10 +209,11 @@ cmd_status() {
 cmd_log() { [ -f "$NG_LOG" ] && tail -n "${1:-20}" "$NG_LOG" || info "Журнал пуст."; }
 
 cmd_test() {
-  local out
-  out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"Bash"}' | NIGHT_GUARD_FORCE=1 NIGHT_GUARD_HOME="$(mktemp -d)" bash "$HOOK_SRC" 2>&1)
+  local out t1 t2
+  t1=$(mktemp -d); t2=$(mktemp -d); trap 'rm -rf "$t1" "$t2"' RETURN
+  out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"Bash"}' | NIGHT_GUARD_FORCE=1 NIGHT_GUARD_HOME="$t1" bash "$HOOK_SRC" 2>&1)
   case "$out" in *'"permissionDecision":"deny"'*) ok "Хук отвечает deny в ночном режиме." ;; *) die "Хук не сработал: $out" ;; esac
-  out=$(echo '{"hook_event_name":"UserPromptSubmit","prompt":"x"}' | NIGHT_GUARD_FORCE=1 NIGHT_GUARD_HOME="$(mktemp -d)" bash "$HOOK_SRC" 2>&1)
+  out=$(echo '{"hook_event_name":"UserPromptSubmit","prompt":"x"}' | NIGHT_GUARD_FORCE=1 NIGHT_GUARD_HOME="$t2" bash "$HOOK_SRC" 2>&1)
   case "$out" in *'"decision":"block"'*) ok "Хук блокирует промпты в ночном режиме." ;; *) die "Хук не сработал: $out" ;; esac
 }
 

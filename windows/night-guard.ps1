@@ -78,7 +78,7 @@ function Test-NgBlocking {
 function Write-NgLog([string]$Text) {
     try {
         if (-not (Test-Path -LiteralPath $script:NgHome)) { New-Item -ItemType Directory -Path $script:NgHome -Force | Out-Null }
-        $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Text
+        $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH\:mm\:ss'), $Text
         [IO.File]::AppendAllText($script:NgLog, $line + "`n", (New-Object Text.UTF8Encoding($false)))
         $lines = [IO.File]::ReadAllLines($script:NgLog)
         if ($lines.Count -gt $script:NgLogMax) {
@@ -105,7 +105,7 @@ if ($inputText -match '"hook_event_name"\s*:\s*"([A-Za-z]+)"') { $hookEvent = $M
 if ($inputText -match '"tool_name"\s*:\s*"([^"]*)"') { $tool = $Matches[1] }
 Write-NgLog (("{0} {1}" -f $(if ($hookEvent) { $hookEvent } else { 'unknown' }), $tool).Trim())
 
-$msg = "Night Guard: сейчас $(Get-Date -Format 'HH:mm'). С $script:NgStart до $script:NgEnd вайбкодинг выключен. Иди спать — продолжим утром."
+$msg = "Night Guard: сейчас $(Get-Date -Format 'HH\:mm'). С $script:NgStart до $script:NgEnd вайбкодинг выключен. Иди спать — продолжим утром."
 
 function ConvertTo-NgJsonString([string]$s) {
     $sb = New-Object Text.StringBuilder

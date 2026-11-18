@@ -9,6 +9,8 @@ struct NGStatus: Decodable, Equatable {
     var pause_left = 0, pause_max = 30, blocks_today = 0
     var claude_present = false, claude_installed = false
     var codex_present = false, codex_installed = false
+    // Settings stay locked for the whole night window, even during a pause.
+    var locked: Bool { enabled && in_window }
 }
 
 @MainActor
@@ -22,6 +24,7 @@ final class Model: ObservableObject {
     @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
     private var timer: Timer?
     private var editedSchedule = false
+    private var generation = 0
 
     nonisolated static let cli = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".night-guard/nightguard").path
@@ -63,8 +66,11 @@ final class Model: ObservableObject {
     }
 
     func refresh() {
+        generation += 1
+        let mine = generation
         Task {
             let (code, out) = await run(["status", "--json"])
+            guard mine == generation else { return }   // a newer refresh is in flight
             if code == 127 { cliMissing = true; return }
             guard code == 0, let st = try? JSONDecoder().decode(NGStatus.self, from: Data(out.utf8)) else { return }
             cliMissing = false
@@ -163,8 +169,8 @@ struct ContentView: View {
                 Spacer()
                 Toggle("", isOn: Binding(get: { m.s.enabled }, set: { m.act([$0 ? "on" : "off"]) }))
                     .toggleStyle(.switch).controlSize(.small).labelsHidden()
-                    .disabled(m.s.blocking && m.s.enabled)
-                    .help(m.s.blocking ? "Ночью выключить нельзя" : "Включить или выключить Night Guard")
+                    .disabled(m.s.locked)
+                    .help(m.s.locked ? "Ночью выключить нельзя" : "Включить или выключить Night Guard")
             }
             HStack {
                 DatePicker("С", selection: Binding(get: { m.start }, set: { m.start = $0; m.scheduleEdited() }),
@@ -176,8 +182,8 @@ struct ContentView: View {
                     Button("Сохранить") { m.saveSchedule() }.controlSize(.small).keyboardShortcut(.defaultAction)
                 }
             }
-            .disabled(m.s.blocking)
-            if m.s.blocking {
+            .disabled(m.s.locked)
+            if m.s.locked {
                 Label("Ночью расписание менять нельзя", systemImage: "lock.fill")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -206,7 +212,7 @@ struct ContentView: View {
                 Text("не найден").font(.caption).foregroundStyle(.secondary)
             } else if installed {
                 Button("Отключить") { m.act(["uninstall", key]) }.controlSize(.small)
-                    .disabled(m.s.blocking).help(m.s.blocking ? "Ночью отключать нельзя" : "")
+                    .disabled(m.s.locked).help(m.s.locked ? "Ночью отключать нельзя" : "")
             } else {
                 Button("Подключить") { m.act(["install", key]) }.controlSize(.small)
             }
@@ -221,6 +227,7 @@ struct ContentView: View {
                 Text("Один раз за ночь, до \(m.s.pause_max) мин.").font(.caption).foregroundStyle(.secondary)
             } else {
                 Stepper("На \(pauseMinutes) мин", value: $pauseMinutes, in: 1...max(1, m.s.pause_max), step: 5)
+                    .onAppear { pauseMinutes = min(pauseMinutes, max(1, m.s.pause_max)) }
                 Text("Напиши: «\(Model.phrase)»").font(.caption).foregroundStyle(.secondary)
                 TextField("", text: $phrase).textFieldStyle(.roundedBorder)
                 HStack {

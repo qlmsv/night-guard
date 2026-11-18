@@ -26,7 +26,8 @@ Initialize-NgCliPaths
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
 
 # ---------- state ----------
-function Test-NgNightLocked { ($script:NgEnabled -eq 1) -and (Test-NgInWindow) -and ((Get-NgPauseLeft) -eq 0) }
+# Settings stay locked for the whole night window: a pause only lets the agents work.
+function Test-NgNightLocked { ($script:NgEnabled -eq 1) -and (Test-NgInWindow) }
 function Assert-NgDay {
     if (Test-NgNightLocked) { throw "Сейчас ночь ($script:NgStart–$script:NgEnd): менять настройки нельзя. Это и есть смысл ограничителя." }
 }
@@ -69,12 +70,17 @@ function Set-NgProp($Obj, [string]$Name, $Value) {
     else { $Obj | Add-Member -NotePropertyName $Name -NotePropertyValue $Value }
 }
 
+function Test-NgOurs($Handler) { $null -ne $Handler -and ("$($Handler.command)" -match '\.night-guard/night-guard\.(ps1|sh)') }
+
 function Remove-NgGroups($Groups) {
-    # Drop our hook handlers from a list of matcher groups; drop groups left empty.
+    # Drop our hook handlers; drop a group only if it held one of ours and is now empty.
+    # Groups that never contained Night Guard are kept exactly as they were.
     $out = New-Object System.Collections.ArrayList
     foreach ($g in @($Groups)) {
         if ($null -eq $g) { continue }
-        $kept = @(@($g.hooks) | Where-Object { $null -ne $_ -and ("$($_.command)" -notmatch '\.night-guard/night-guard\.(ps1|sh)') })
+        $all = @($g.hooks)
+        if (@($all | Where-Object { Test-NgOurs $_ }).Count -eq 0) { [void]$out.Add($g); continue }
+        $kept = @($all | Where-Object { $null -ne $_ -and -not (Test-NgOurs $_) })
         if ($kept.Count -gt 0) { Set-NgProp $g 'hooks' $kept; [void]$out.Add($g) }
     }
     return $out.ToArray()
@@ -97,15 +103,13 @@ function Save-NgJson([string]$Path, $Obj) {
     }
     $json = ConvertTo-Json -InputObject $Obj -Depth 32
     $null = $json | ConvertFrom-Json   # validate before writing
-    $tmp = "$Path.ng.tmp"
-    [IO.File]::WriteAllText($tmp, $json + "`n", $Utf8NoBom)
-    Move-Item -LiteralPath $tmp -Destination $Path -Force
+    [IO.File]::WriteAllText($Path, $json + "`n", $Utf8NoBom)   # writes through symlinks (dotfiles repos)
 }
 
 function Add-NgHooks([string]$Path, [string]$Matcher) {
     $obj = Read-NgJson $Path
     if (-not $obj.PSObject.Properties['hooks'] -or $null -eq $obj.hooks) { Set-NgProp $obj 'hooks' (New-Object PSObject) }
-    $handler = [PSCustomObject]@{ type = 'command'; command = (Get-NgHookCommand); timeout = 15 }
+    $handler = [PSCustomObject]@{ type = 'command'; command = (Get-NgHookCommand); timeout = 60 }
     $ups = @(Remove-NgGroups $obj.hooks.UserPromptSubmit) + @([PSCustomObject]@{ hooks = @($handler) })
     $ptu = @(Remove-NgGroups $obj.hooks.PreToolUse) + @([PSCustomObject]@{ matcher = $Matcher; hooks = @($handler) })
     Set-NgProp $obj.hooks 'UserPromptSubmit' $ups
@@ -118,6 +122,8 @@ function Remove-NgHooks([string]$Path) {
     $obj = Read-NgJson $Path
     if (-not $obj.PSObject.Properties['hooks'] -or $null -eq $obj.hooks) { return $false }
     foreach ($p in @($obj.hooks.PSObject.Properties)) {
+        # Leave events that never contained Night Guard untouched (even empty ones).
+        if ((ConvertTo-Json -InputObject $p.Value -Depth 32 -Compress) -notmatch 'night-guard/night-guard\.') { continue }
         $left = @(Remove-NgGroups $p.Value)
         if ($left.Count -gt 0) { $obj.hooks.($p.Name) = $left } else { $obj.hooks.PSObject.Properties.Remove($p.Name) }
     }
@@ -142,12 +148,34 @@ function Install-NgFiles {
     if ($env:NIGHT_GUARD_HOME) { $cmdShim = "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$script:NgHome\nightguard.ps1`" %*`r`n" }
     [IO.File]::WriteAllText((Join-Path $script:BinDir 'nightguard.cmd'), $cmdShim, (New-Object Text.ASCIIEncoding))
     if (-not $env:NG_NO_PATH) {
-        $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-        if (-not (@($userPath -split ';') -contains $script:BinDir)) {
-            [Environment]::SetEnvironmentVariable('Path', (@(@($userPath -split ';') | Where-Object { $_ }) + $script:BinDir) -join ';', 'User')
-        }
+        $parts = @(Get-NgUserPathParts)
+        if (-not ($parts -contains $script:BinDir)) { Set-NgUserPathParts ($parts + $script:BinDir) }
     }
     Write-NgConfig
+}
+
+# User PATH is edited in the registry without expanding %VARIABLES%, and kept as REG_EXPAND_SZ,
+# so entries like %USERPROFILE%\AppData\... are not rewritten into hard-coded paths.
+function Get-NgUserPathParts {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+    if ($null -eq $key) { return @() }
+    try { $raw = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) } finally { $key.Close() }
+    return @($raw -split ';' | Where-Object { $_ })
+}
+function Set-NgUserPathParts([string[]]$Parts) {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+    try { $key.SetValue('Path', ($Parts -join ';'), [Microsoft.Win32.RegistryValueKind]::ExpandString) } finally { $key.Close() }
+    # Tell Explorer and new terminals that the environment changed (WM_SETTINGCHANGE broadcast).
+    [Environment]::SetEnvironmentVariable('NIGHT_GUARD_ENV_REFRESH', '1', 'User')
+    [Environment]::SetEnvironmentVariable('NIGHT_GUARD_ENV_REFRESH', $null, 'User')
+}
+
+function Stop-NgTray {
+    try {
+        Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
+            Where-Object { $_.CommandLine -like '*\.night-guard\tray.ps1*' -and $_.ProcessId -ne $PID } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    } catch { }
 }
 
 function Install-NightGuard([string]$Target = 'all') {
@@ -179,14 +207,15 @@ function Uninstall-NightGuard([string]$Target = 'all', [string]$Phrase = $env:NG
         }
     }
     if ($Target -eq 'all') {
-        $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-        if ($userPath -and -not $env:NG_NO_PATH) {
-            [Environment]::SetEnvironmentVariable('Path', (@($userPath -split ';') | Where-Object { $_ -and $_ -ne $script:BinDir }) -join ';', 'User')
+        if (-not $env:NG_NO_PATH) {
+            $parts = @(Get-NgUserPathParts)
+            if ($parts -contains $script:BinDir) { Set-NgUserPathParts @($parts | Where-Object { $_ -ne $script:BinDir }) }
         }
         foreach ($folder in @('Startup', 'Programs')) {
             $dir = [Environment]::GetFolderPath($folder)
             if ($dir) { $lnk = Join-Path $dir 'Night Guard.lnk'; if (Test-Path -LiteralPath $lnk) { Remove-Item -LiteralPath $lnk -Force } }
         }
+        if (-not $env:NG_NO_TRAY_STOP) { Stop-NgTray }
         [void]$out.Add("• Настройки и журнал оставлены в $script:NgHome (удалите папку вручную, если не нужны).")
     }
     $out
@@ -207,7 +236,10 @@ function Disable-NightGuard { Assert-NgDay; $script:NgEnabled = 0; Write-NgConfi
 
 function Assert-NgPhrase([string]$Phrase, [string]$What) {
     if (-not $Phrase) {
-        if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+        # Never wait on Read-Host without a visible console (tray app, -NonInteractive, agents).
+        $interactive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected -and -not $env:NG_NO_PROMPT -and
+            -not ([Environment]::GetCommandLineArgs() -contains '-NonInteractive')
+        if ($interactive) {
             Write-Host "Чтобы $What, напишите: $NgPhrase"
             $Phrase = Read-Host '>'
         } else { throw "Нужно подтверждение. Передайте NG_PHRASE=`"$NgPhrase`"." }
@@ -239,7 +271,7 @@ function Start-NgPause([string]$Minutes = '15', [string]$Phrase = $env:NG_PHRASE
 function Get-NgStatus {
     [PSCustomObject]@{
         version = $NgVersion; enabled = ($script:NgEnabled -eq 1); start = $script:NgStart; end = $script:NgEnd
-        now = (Get-Date -Format 'HH:mm'); in_window = [bool](Test-NgInWindow); blocking = [bool](Test-NgBlocking)
+        now = (Get-Date -Format 'HH\:mm'); in_window = [bool](Test-NgInWindow); blocking = [bool](Test-NgBlocking)
         pause_left = (Get-NgPauseLeft); pause_max = $script:NgPauseMax
         claude_present = (Test-Path -LiteralPath (Split-Path -Parent $script:ClaudeSettings)); claude_installed = [bool](Test-NgClaudeInstalled)
         codex_present = (Test-Path -LiteralPath $script:CodexDir); codex_installed = [bool](Test-NgCodexInstalled)

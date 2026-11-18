@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ru" data-lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Night Guard — презентация</title>
+<meta name="description" content="Night Guard: ночной ограничитель для Claude Code и Codex — презентация.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M20 4a12 12 0 1 0 8 20A10 10 0 0 1 20 4z' fill='%23f5d76e'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Onest:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#080b18;--card:#121836;--line:#232b52;--text:#e8eaf6;--muted:#9aa3c7;--accent:#8b7bff;--accent2:#5ad1ff;--moon:#f5d76e;--ok:#4ade80;--bad:#fb7185;--warn:#fbbf24;--mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#04060f;color:var(--text);font-family:"Onest",system-ui,sans-serif;overflow:hidden}
+html[data-lang=ru] [lang=en],html[data-lang=en] [lang=ru]{display:none!important}
+h1,h2{font-family:"Unbounded",sans-serif;letter-spacing:-.02em;margin:0}
+code{font-family:var(--mono)}
+/* 16:9 stage, scaled to fit */
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center;}
+.slide{position:absolute;inset:0;padding:72px 88px;border-radius:20px;overflow:hidden;
+  background:radial-gradient(900px 500px at 85% -10%,#1f2668 0%,transparent 60%),radial-gradient(700px 400px at -5% 110%,#20124a 0%,transparent 60%),var(--bg);
+  opacity:0;visibility:hidden;transition:opacity .45s ease, transform .45s ease;transform:translateY(14px)}
+.slide.on{opacity:1;visibility:visible;transform:none}
+@media (prefers-reduced-motion:reduce){.slide{transition:none}}
+.k{color:var(--accent);font:600 15px "Onest";letter-spacing:.16em;text-transform:uppercase;margin-bottom:18px}
+.slide h2{font-size:54px;line-height:1.08;max-width:1000px}
+.slide p.lead{font-size:24px;color:var(--muted);max-width:900px;line-height:1.5;margin:24px 0 0}
+.num{position:absolute;right:40px;bottom:30px;color:#4c557f;font:500 14px var(--mono)}
+.brand{position:absolute;left:88px;bottom:30px;color:#4c557f;font:600 14px "Onest";display:flex;gap:8px;align-items:center}
+.moon{position:absolute;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff6c9,var(--moon) 45%,#c99a2e);box-shadow:0 0 120px 10px rgba(245,215,110,.25)}
+.moon::after{content:"";position:absolute;inset:-2%;border-radius:50%;background:var(--bg);transform:translate(28%,-14%)}
+.title h1{font-size:96px;line-height:1;margin-top:110px}
+.title h1 span.m{color:var(--moon)}
+.cols{display:grid;gap:22px;margin-top:44px}
+.c2{grid-template-columns:1fr 1fr}.c3{grid-template-columns:repeat(3,1fr)}
+.card{background:rgba(18,24,54,.8);border:1px solid var(--line);border-radius:18px;padding:28px}
+.card h3{font:500 22px "Unbounded";margin:0 0 10px}
+.card p{color:var(--muted);font-size:19px;line-height:1.5;margin:0}
+.big{font:700 64px "Unbounded";color:var(--moon);margin-bottom:6px}
+.term{background:#0a0e22;border:1px solid var(--line);border-radius:16px;padding:22px 26px;font:19px/1.6 var(--mono);margin-top:36px;max-width:1000px}
+.term .p{color:var(--muted)}.term .b{color:var(--bad)}.term .y{color:var(--moon)}.term .g{color:var(--ok)}
+pre.json{margin:14px 0 0;background:#0a0e22;border:1px solid var(--line);border-radius:12px;padding:14px 16px;font:15px/1.5 var(--mono);color:#c9cdf0;white-space:pre}
+.timeline{position:relative;height:120px;margin-top:60px;border-radius:14px;overflow:hidden;display:flex;border:1px solid var(--line)}
+.timeline div{display:flex;align-items:center;justify-content:center;font:600 20px "Onest"}
+.timeline .d{background:linear-gradient(180deg,rgba(251,191,36,.25),rgba(251,191,36,.08));color:#fde68a}
+.timeline .n{background:linear-gradient(180deg,rgba(139,123,255,.45),rgba(139,123,255,.15));color:#e0dbff}
+.ticks{display:flex;justify-content:space-between;color:#6b739c;font:15px var(--mono);margin-top:10px}
+ul.list{list-style:none;padding:0;margin:36px 0 0;font-size:24px;line-height:1.5}
+ul.list li{padding:14px 0;border-bottom:1px dashed var(--line);display:flex;gap:16px}
+ul.list li:last-child{border:0}
+.ok{color:var(--ok)}.no{color:var(--bad)}.mid{color:var(--warn)}
+.cmd{display:inline-block;background:#0a0e22;border:1px solid var(--line);border-radius:12px;padding:16px 22px;font:20px var(--mono);margin-top:18px}
+.end h2{font-size:72px;margin-top:120px}
+.end a{color:var(--accent2);text-decoration:none}
+/* controls */
+.bar{position:fixed;left:0;right:0;bottom:16px;display:flex;justify-content:center;gap:10px;z-index:5;opacity:.25;transition:opacity .2s}
+.bar:hover,.bar:focus-within{opacity:1}
+.bar button,.bar a{background:rgba(18,24,54,.9);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:8px 14px;font:600 14px "Onest";cursor:pointer;text-decoration:none}
+.bar button[aria-pressed=true]{background:var(--accent);color:#0b0b1a}
+.prog{position:fixed;left:0;top:0;height:3px;background:var(--accent);transition:width .3s;z-index:6}
+</style>
+</head>
+<body>
+<div class="prog" id="prog"></div>
+<div class="stage" id="stage">
+
+<section class="slide title">
+  <div class="moon" style="width:340px;height:340px;right:110px;top:110px"></div>
+  <div class="k">Open source · macOS · Windows · Linux</div>
+  <h1>Night <span class="m">Guard</span></h1>
+  <p class="lead"><span lang="ru">Ночной ограничитель для Claude Code и Codex.<br>Агенты спят ночью. И ты тоже.</span><span lang="en">A night-time lock for Claude Code and Codex.<br>Agents sleep at night. So do you.</span></p>
+</section>
+
+<section class="slide">
+  <div class="k"><span lang="ru">Проблема</span><span lang="en">The problem</span></div>
+  <h2><span lang="ru">«Ещё один промпт — и спать»</span><span lang="en">“One more prompt, then bed”</span></h2>
+  <div class="cols c3">
+    <div class="card"><div class="big">01:47</div><p><span lang="ru">Агенты работают быстро, а цикл «промпт → результат» затягивает сильнее, чем обычный код.</span><span lang="en">Agents are fast, and the prompt → result loop hooks you harder than writing code by hand.</span></p></div>
+    <div class="card"><div class="big">∞</div><p><span lang="ru">Агент не устаёт и не скажет «хватит». Он всегда готов к следующей задаче.</span><span lang="en">The agent never gets tired and never says “enough.” It's always ready for the next task.</span></p></div>
+    <div class="card"><div class="big">😵</div><p><span lang="ru">Утром — недосып и код, который ты плохо помнишь, как писал.</span><span lang="en">In the morning: no sleep, and code you barely remember writing.</span></p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="k"><span lang="ru">Решение</span><span lang="en">The fix</span></div>
+  <h2><span lang="ru">Ночью агенты говорят «нет»</span><span lang="en">At night, agents say no</span></h2>
+  <div class="term">
+    <div class="p">❯ <span lang="ru">почини ещё один баг</span><span lang="en">fix one more bug</span></div>
+    <div class="b">✗ UserPromptSubmit operation blocked by hook</div>
+    <div class="y">🌙 Night Guard: <span lang="ru">сейчас 01:47. С 23:00 до 07:00 вайбкодинг выключен. Иди спать — продолжим утром.</span><span lang="en">it's 01:47. Vibe coding is off from 23:00 to 07:00. Go to bed and pick it up in the morning.</span></div>
+  </div>
+  <div class="timeline"><div class="d" style="flex:16">☀️ <span lang="ru">&nbsp;работаем</span><span lang="en">&nbsp;working</span></div><div class="n" style="flex:8">🌙 <span lang="ru">&nbsp;спим</span><span lang="en">&nbsp;sleeping</span></div></div>
+  <div class="ticks"><span>07:00</span><span>12:00</span><span>18:00</span><span>23:00</span><span>07:00</span></div>
+</section>
+
+<section class="slide">
+  <div class="k"><span lang="ru">Как устроено</span><span lang="en">Under the hood</span></div>
+  <h2><span lang="ru">Два официальных хука</span><span lang="en">Two official hooks</span></h2>
+  <div class="cols c2">
+    <div class="card"><h3>UserPromptSubmit</h3><p><span lang="ru">Перехватывает каждый промпт. Ночью он не уходит в модель.</span><span lang="en">Catches every prompt. At night, it never reaches the model.</span></p>
+      <pre class="json">{ "decision": "block",
+  "reason": "Иди спать…" }</pre></div>
+    <div class="card"><h3>PreToolUse</h3><p><span lang="ru">Перехватывает каждое действие агента — даже в задаче, запущенной вечером.</span><span lang="en">Catches every agent action, even in a task you started in the evening.</span></p>
+      <pre class="json">{ "hookSpecificOutput": {
+    "permissionDecision": "deny" } }</pre></div>
+  </div>
+  <p class="lead" style="font-size:20px"><span lang="ru">Один скрипт для Claude Code и Codex: bash на macOS/Linux, PowerShell 5.1/7 на Windows. Без зависимостей.</span><span lang="en">One script for both Claude Code and Codex: bash on macOS/Linux, PowerShell 5.1/7 on Windows. No dependencies.</span></p>
+</section>
+
+<section class="slide">
+  <div class="k"><span lang="ru">Правила ночи</span><span lang="en">Night rules</span></div>
+  <h2><span lang="ru">Упрямый, но не жестокий</span><span lang="en">Stubborn, not cruel</span></h2>
+  <ul class="list">
+    <li><span class="no">✗</span><span lang="ru">Промпты и действия агентов блокируются</span><span lang="en">Prompts and agent actions are blocked</span></li>
+    <li><span class="no">✗</span><span lang="ru">Нельзя сменить расписание или выключить защиту</span><span lang="en">You can't change the schedule or switch protection off</span></li>
+    <li><span class="mid">⏸</span><span lang="ru">Экстренная пауза: 1 раз за ночь, до 30 минут, после фразы «я осознанно работаю ночью»</span><span lang="en">Emergency pause: once a night, up to 30 minutes, after you type the confirmation phrase</span></li>
+    <li><span class="ok">✓</span><span lang="ru">Утром всё снова работает само, без единого клика</span><span lang="en">In the morning everything works again on its own, no clicks needed</span></li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="k"><span lang="ru">Интерфейс</span><span lang="en">Interface</span></div>
+  <h2><span lang="ru">Там, где ты уже смотришь</span><span lang="en">Right where you already look</span></h2>
+  <div class="cols c3">
+    <div class="card"><div class="big" style="font-size:44px"></div><h3><span lang="ru">Строка меню</span><span lang="en">Menu bar</span></h3><p><span lang="ru">Нативное приложение на SwiftUI: статус, расписание, подключение агентов, пауза.</span><span lang="en">A native SwiftUI app: status, schedule, connecting agents, pause.</span></p></div>
+    <div class="card"><div class="big" style="font-size:44px">⊞</div><h3><span lang="ru">Трей Windows</span><span lang="en">Windows tray</span></h3><p><span lang="ru">Значок и окно настроек на PowerShell + WinForms. Компилировать ничего не нужно.</span><span lang="en">An icon and settings window built with PowerShell + WinForms. Nothing to compile.</span></p></div>
+    <div class="card"><div class="big" style="font-size:44px">❯_</div><h3><span lang="ru">Терминал</span><span lang="en">Terminal</span></h3><p><span lang="ru"><code>nightguard</code> — интерактивное меню и команды: status, schedule, pause, log.</span><span lang="en"><code>nightguard</code> gives you an interactive menu and commands: status, schedule, pause, log.</span></p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="k"><span lang="ru">Качество</span><span lang="en">Quality</span></div>
+  <h2><span lang="ru">Аудит до релиза</span><span lang="en">Audited before release</span></h2>
+  <div class="cols c2">
+    <div class="card"><h3><span lang="ru">Найдено и исправлено</span><span lang="en">Found and fixed</span></h3><p>
+      <span lang="ru">· время «23:30» молча отключало защиту<br>· конфиг исполнялся как код<br>· без jq защита пропадала<br>· сбой приложения из-за ожидания процесса на главном потоке<br>· кириллица ломалась в PowerShell 5.1</span>
+      <span lang="en">· a “23:30” value silently disabled protection<br>· the config file ran as code<br>· without jq, protection disappeared<br>· the app crashed while waiting on a process on the main thread<br>· Cyrillic text broke in PowerShell 5.1</span></p></div>
+    <div class="card"><h3><span lang="ru">Проверяется в CI</span><span lang="en">Checked in CI</span></h3><p>
+      <span lang="ru">macOS · Linux · Windows (PowerShell 5.1 и 7).<br>Хук запускается через cmd, PowerShell и Git Bash — так, как его вызовут агенты.</span>
+      <span lang="en">macOS · Linux · Windows (PowerShell 5.1 and 7).<br>The hook runs through cmd, PowerShell and Git Bash, the same ways the agents call it.</span></p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="k"><span lang="ru">Установка</span><span lang="en">Install</span></div>
+  <h2><span lang="ru">Одна команда</span><span lang="en">One command</span></h2>
+  <p class="lead"> macOS / 🐧 Linux</p>
+  <div class="cmd">git clone https://github.com/qlmsv/night-guard &amp;&amp; cd night-guard &amp;&amp; ./install.sh</div>
+  <p class="lead">⊞ Windows</p>
+  <div class="cmd">powershell -ExecutionPolicy Bypass -File install.ps1</div>
+  <p class="lead" style="font-size:19px"><span lang="ru">Codex: один раз выполните <code>/hooks</code> и доверьте хукам Night Guard.</span><span lang="en">Codex: run <code>/hooks</code> once and trust the Night Guard hooks.</span></p>
+</section>
+
+<section class="slide end">
+  <div class="moon" style="width:260px;height:260px;right:140px;top:120px"></div>
+  <div class="k">MIT · open source</div>
+  <h2><span lang="ru">Спокойной ночи 🌙</span><span lang="en">Good night 🌙</span></h2>
+  <p class="lead"><a href="https://github.com/qlmsv/night-guard">github.com/qlmsv/night-guard</a><br><a href="index.html"><span lang="ru">Сайт проекта →</span><span lang="en">Project site →</span></a></p>
+</section>
+
+</div>
+
+<div class="bar">
+  <button id="prev" aria-label="Previous">←</button>
+  <button id="next" aria-label="Next">→</button>
+  <button data-set-lang="ru" aria-pressed="true">RU</button><button data-set-lang="en" aria-pressed="false">EN</button>
+  <a href="index.html"><span lang="ru">Сайт</span><span lang="en">Site</span></a>
+</div>
+
+<script>
+(function(){
+  var slides=[].slice.call(document.querySelectorAll('.slide')),i=0,stage=document.getElementById('stage');
+  slides.forEach(function(s,n){if(!s.querySelector('.num')){var d=document.createElement('div');d.className='num';d.textContent=(n+1)+' / '+slides.length;s.appendChild(d);}
+    if(n>0){var b=document.createElement('div');b.className='brand';b.innerHTML='🌙 Night Guard';s.appendChild(b);}});
+  function fit(){var s=Math.min(innerWidth/1280,innerHeight/720)*.96;stage.style.transform='translate(-50%,-50%) scale('+s+')';}
+  function go(n){i=Math.max(0,Math.min(slides.length-1,n));slides.forEach(function(s,k){s.classList.toggle('on',k===i)});
+    document.getElementById('prog').style.width=((i+1)/slides.length*100)+'%';history.replaceState(null,'','#'+(i+1));}
+  addEventListener('resize',fit);fit();
+  addEventListener('keydown',function(e){
+    if(['ArrowRight','PageDown',' ','Enter'].indexOf(e.key)>=0){e.preventDefault();go(i+1)}
+    else if(['ArrowLeft','PageUp','Backspace'].indexOf(e.key)>=0){e.preventDefault();go(i-1)}
+    else if(e.key==='Home')go(0);else if(e.key==='End')go(slides.length-1);
+  });
+  var x0=null;addEventListener('touchstart',function(e){x0=e.touches[0].clientX},{passive:true});
+  addEventListener('touchend',function(e){if(x0===null)return;var dx=e.changedTouches[0].clientX-x0;if(Math.abs(dx)>40)go(i+(dx<0?1:-1));x0=null});
+  stage.addEventListener('click',function(e){if(e.target.closest('a'))return;go(i+(e.clientX>innerWidth/2?1:-1))});
+  document.getElementById('prev').onclick=function(){go(i-1)};document.getElementById('next').onclick=function(){go(i+1)};
+  function setLang(l){document.documentElement.setAttribute('data-lang',l);document.documentElement.lang=l;
+    document.title=l==='en'?'Night Guard — slides':'Night Guard — презентация';
+    document.querySelectorAll('[data-set-lang]').forEach(function(b){b.setAttribute('aria-pressed',b.dataset.setLang===l)});
+    try{localStorage.setItem('ng-lang',l)}catch(e){}}
+  var q=new URLSearchParams(location.search).get('lang'),saved=null;try{saved=localStorage.getItem('ng-lang')}catch(e){}
+  setLang(q==='en'||q==='ru'?q:(saved||((navigator.language||'').slice(0,2)==='ru'?'ru':'en')));
+  document.querySelectorAll('[data-set-lang]').forEach(function(b){b.onclick=function(){setLang(b.dataset.setLang)}});
+  function fromHash(){var h=parseInt(location.hash.slice(1),10);go(h>0?h-1:0);}
+  addEventListener('hashchange',fromHash);fromHash();
+})();
+</script>
+</body>
+</html>
