@@ -1,7 +1,7 @@
 #!/bin/bash
 # nightguard — manage Night Guard (night-time lock for Claude Code and Codex).
 set -u
-NG_VERSION="1.0.0"
+NG_VERSION="1.1.0"
 
 # Resolve where we run from: installed (~/.night-guard/nightguard) or repo (bin/nightguard).
 self="$0"
@@ -162,7 +162,7 @@ confirm_phrase() { # $1 = what
 
 night_id() { # date the current night started on
   local s; s=$(ng_to_min "$NG_START")
-  if [ "$(ng_now_min)" -lt "$s" ]; then date -v-1d +%F; else date +%F; fi
+  if [ "$(ng_now_min)" -lt "$s" ]; then date -d yesterday +%F 2>/dev/null || date -v-1d +%F; else date +%F; fi
 }
 
 cmd_pause() {
